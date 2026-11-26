@@ -181,7 +181,10 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
         let sourceVideoType = "mp4"
         
         let sourceVideoAsset = avController.getVideoAsset(sourceVideoUrl)
-        let sourceVideoTrack = avController.getTrack(sourceVideoAsset)
+        // BT-1284: 영상 트랙이 없는 파일이면 강제 언랩으로 앱이 죽었다. nil 을 돌려 원본으로 진행하게 한다.
+        guard let sourceVideoTrack = avController.getTrack(sourceVideoAsset) else {
+            return result(nil)
+        }
 
         let uuid = NSUUID()
         let compressionUrl =
@@ -200,9 +203,11 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
         
         let isIncludeAudio = includeAudio != nil ? includeAudio! : true
         
-        let session = getComposition(isIncludeAudio, timeRange, sourceVideoTrack!)
+        let session = getComposition(isIncludeAudio, timeRange, sourceVideoTrack)
         
-        let exporter = AVAssetExportSession(asset: session, presetName: getExportPreset(quality))!
+        guard let exporter = AVAssetExportSession(asset: session, presetName: getExportPreset(quality)) else {
+            return result(nil)
+        }
         
         exporter.outputURL = compressionUrl
         exporter.outputFileType = AVFileType.mp4
