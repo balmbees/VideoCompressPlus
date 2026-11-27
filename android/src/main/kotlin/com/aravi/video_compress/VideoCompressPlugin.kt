@@ -17,7 +17,6 @@ import com.otaliastudios.transcoder.internal.utils.Logger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
-import io.flutter.plugin.common.PluginRegistry.Registrar
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -61,10 +60,19 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
             }
             "getMediaInfo" -> {
                 val path = call.argument<String>("path")
-                result.success(Utility(channelName).getMediaInfoJson(context, path!!).toString())
+                // BT-1284: 읽을 수 없는 파일이면 메인 스레드 예외로 앱이 죽지 않도록 null 을 돌려준다.
+                val json = try {
+                    Utility(channelName).getMediaInfoJson(context, path!!)
+                } catch (e: Exception) {
+                    Log.w(TAG, "getMediaInfo: cannot read $path", e)
+                    null
+                }
+                result.success(json?.toString())
             }
             "deleteAllCache" -> {
-                result.success(Utility(channelName).deleteAllCache(context, result));
+                // Utility.deleteAllCache 가 result 에 직접 응답한다. 여기서 다시 success 를 부르면
+                // kotlin.Unit 직렬화 실패·Reply already submitted 오류가 난다.
+                Utility(channelName).deleteAllCache(context, result)
             }
             "setLogLevel" -> {
                 val logLevel = call.argument<Int>("logLevel")!!
@@ -156,7 +164,17 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                             }
                             override fun onTranscodeCompleted(successCode: Int) {
                                 channel.invokeMethod("updateProgress", 100.00)
-                                val json = Utility(channelName).getMediaInfoJson(context, destPath)
+                                // BT-1284: 트랙을 못 읽는 입력이면 Transcoder 가 "변환 불필요"로 0바이트 파일을
+                                // 남기고, 그 정보를 읽다 메인 스레드 예외로 앱이 강제 종료됐다.
+                                // 결과를 못 읽으면 null 을 돌려 Dart 쪽이 원본으로 진행하게 한다.
+                                val json = try {
+                                    Utility(channelName).getMediaInfoJson(context, destPath)
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "compressVideo: cannot read output $destPath", e)
+                                    File(destPath).delete()
+                                    result.success(null)
+                                    return
+                                }
                                 json.put("isCancel", false)
                                 result.success(json.toString())
                                 if (deleteOrigin) {
@@ -198,12 +216,6 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
 
     companion object {
         private const val TAG = "video_compress"
-
-        @JvmStatic
-        fun registerWith(registrar: Registrar) {
-            val instance = VideoCompressPlugin()
-            instance.init(registrar.context(), registrar.messenger())
-        }
     }
 
 }
