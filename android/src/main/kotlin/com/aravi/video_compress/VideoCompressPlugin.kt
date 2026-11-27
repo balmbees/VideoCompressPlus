@@ -70,7 +70,9 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                 result.success(json?.toString())
             }
             "deleteAllCache" -> {
-                result.success(Utility(channelName).deleteAllCache(context, result));
+                // Utility.deleteAllCache 가 result 에 직접 응답한다. 여기서 다시 success 를 부르면
+                // kotlin.Unit 직렬화 실패·Reply already submitted 오류가 난다.
+                Utility(channelName).deleteAllCache(context, result)
             }
             "setLogLevel" -> {
                 val logLevel = call.argument<Int>("logLevel")!!
